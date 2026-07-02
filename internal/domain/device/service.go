@@ -11,7 +11,6 @@ type Repository interface {
 	CountByAccount(ctx context.Context, accountID string) (int64, error)
 	Revoke(ctx context.Context, deviceID string) error
 	RevokeAllForAccount(ctx context.Context, accountID, exemptDeviceID string) error
-	UpdateLastSeen(ctx context.Context, deviceID string) error
 	UpdatePushToken(ctx context.Context, deviceID string, tokenType PushTokenType, token []byte) error
 }
 
@@ -57,10 +56,6 @@ func (s *Service) Revoke(ctx context.Context, deviceID string) error {
 
 func (s *Service) RevokeAllForAccount(ctx context.Context, accountID, exemptDeviceID string) error {
 	return s.repo.RevokeAllForAccount(ctx, accountID, exemptDeviceID)
-}
-
-func (s *Service) UpdateLastSeen(ctx context.Context, deviceID string) error {
-	return s.repo.UpdateLastSeen(ctx, deviceID)
 }
 
 func (s *Service) UpdatePushToken(ctx context.Context, deviceID string, tokenType PushTokenType, token []byte) error {

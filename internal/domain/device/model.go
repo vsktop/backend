@@ -35,8 +35,6 @@ type Device struct {
 
 	CreatedAt time.Time
 
-	LastSeenAt time.Time
-
 	RevokedAt *time.Time
 }
 

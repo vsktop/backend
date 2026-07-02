@@ -3,6 +3,8 @@ package voice
 import (
 	"context"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type Repository interface {
@@ -124,5 +126,5 @@ func (s *Service) UpdateMute(ctx context.Context, sessionID, deviceID string, mu
 }
 
 func generateID() string {
-	return ""
+	return uuid.New().String()
 }

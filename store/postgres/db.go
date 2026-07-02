@@ -1,20 +1,17 @@
-// GORM pool config
 package postgres
 
 import (
+	"fmt"
+	"os"
+
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
-var DB *gorm.DB
-
-func Connect() {
-	conn, err := gorm.Open(postgres.Open("host=localhost user=postgres dbname=vesktop port=5432 sslmode=disable"), &gorm.Config{})
-	if err != nil {
-		panic("failed to connect database")
+func Connect() (*gorm.DB, error) {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		return nil, fmt.Errorf("postgres: DATABASE_URL is not set")
 	}
-
-	DB = conn
-
-	println("Connected to Postgres database")
+	return gorm.Open(postgres.Open(dsn), &gorm.Config{})
 }

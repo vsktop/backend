@@ -3,6 +3,8 @@ package abuse
 import (
 	"context"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type Repository interface {
@@ -145,7 +147,7 @@ func calculatePoints(incType IncidentType) int64 {
 }
 
 func generateID() string {
-	return ""
+	return uuid.New().String()
 }
 
 func (t IncidentType) String() string {

@@ -2,7 +2,6 @@ package prekey
 
 import (
 	"crypto/ed25519"
-	"crypto/subtle"
 	"errors"
 )
 
@@ -24,23 +23,12 @@ func VerifySignedPrekeySignature(identityKey ed25519.PublicKey, prekeyPub, signa
 }
 
 func VerifyPrekeyBundle(identityKey ed25519.PublicKey, signedPrekeyPub, signedPrekeySig []byte) error {
-	if err := VerifySignedPrekeySignature(identityKey, signedPrekeyPub, signedPrekeySig); err != nil {
-		return err
-	}
-	return nil
+	return VerifySignedPrekeySignature(identityKey, signedPrekeyPub, signedPrekeySig)
 }
 
-func ContainsID(constant []uint64, target uint64) bool {
-	targetBytes := make([]byte, 8)
-	for i := range targetBytes {
-		targetBytes[i] = byte(target >> (i * 8))
-	}
-	for _, id := range constant {
-		idBytes := make([]byte, 8)
-		for i := range idBytes {
-			idBytes[i] = byte(id >> (i * 8))
-		}
-		if subtle.ConstantTimeCompare(idBytes, targetBytes) == 1 {
+func ContainsID(ids []uint64, target uint64) bool {
+	for _, id := range ids {
+		if id == target {
 			return true
 		}
 	}

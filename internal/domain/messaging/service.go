@@ -3,6 +3,8 @@ package messaging
 import (
 	"context"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type Repository interface {
@@ -89,5 +91,5 @@ func (s *Service) FanoutToDevices(ctx context.Context, msg *Message, targets []F
 }
 
 func generateMessageID() string {
-	return ""
+	return uuid.New().String()
 }

@@ -24,11 +24,9 @@ const (
 type Guild struct {
 	ID string
 
-	Name string
-
 	OwnerID string
 
-	IconBlob []byte
+	ConfigBlob []byte
 
 	CreatedAt time.Time
 
@@ -49,11 +47,9 @@ type Channel struct {
 
 	GuildID string
 
-	Name string
-
 	Type ChannelType
 
-	TopicBlob []byte
+	ConfigBlob []byte
 
 	CreatedAt time.Time
 
@@ -76,11 +72,11 @@ func (g *Guild) Validate() error {
 	if g.ID == "" {
 		return errors.New("guild: id is required")
 	}
-	if g.Name == "" {
-		return errors.New("guild: name is required")
-	}
 	if g.OwnerID == "" {
 		return errors.New("guild: owner_id is required")
+	}
+	if len(g.ConfigBlob) == 0 {
+		return errors.New("guild: config_blob is required")
 	}
 	return nil
 }
@@ -92,8 +88,8 @@ func (c *Channel) Validate() error {
 	if c.GuildID == "" {
 		return errors.New("channel: guild_id is required")
 	}
-	if c.Name == "" {
-		return errors.New("channel: name is required")
+	if len(c.ConfigBlob) == 0 {
+		return errors.New("channel: config_blob is required")
 	}
 	if c.Type != ChannelText && c.Type != ChannelVoice {
 		return errors.New("channel: invalid type")

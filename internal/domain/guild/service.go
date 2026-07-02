@@ -3,6 +3,8 @@ package guild
 import (
 	"context"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type Repository interface {
@@ -27,14 +29,13 @@ func NewService(repo Repository) *Service {
 	return &Service{repo: repo}
 }
 
-func (s *Service) CreateGuild(ctx context.Context, ownerID, name string, iconBlob []byte) (*Guild, error) {
+func (s *Service) CreateGuild(ctx context.Context, ownerID string, configBlob []byte) (*Guild, error) {
 	g := &Guild{
-		ID:        generateID(),
-		Name:      name,
-		OwnerID:   ownerID,
-		IconBlob:  iconBlob,
-		CreatedAt: time.Now().UTC(),
-		UpdatedAt: time.Now().UTC(),
+		ID:         generateID(),
+		OwnerID:    ownerID,
+		ConfigBlob: configBlob,
+		CreatedAt:  time.Now().UTC(),
+		UpdatedAt:  time.Now().UTC(),
 	}
 
 	if err := g.Validate(); err != nil {
@@ -76,7 +77,7 @@ func (s *Service) DeleteGuild(ctx context.Context, guildID, actorAccountID strin
 	return s.repo.Delete(ctx, guildID)
 }
 
-func (s *Service) CreateChannel(ctx context.Context, guildID, actorAccountID, name string, chType ChannelType, topicBlob []byte) (*Channel, error) {
+func (s *Service) CreateChannel(ctx context.Context, guildID, actorAccountID string, chType ChannelType, configBlob []byte) (*Channel, error) {
 	member, err := s.repo.GetMember(ctx, actorAccountID, guildID)
 	if err != nil {
 		return nil, err
@@ -86,12 +87,11 @@ func (s *Service) CreateChannel(ctx context.Context, guildID, actorAccountID, na
 	}
 
 	c := &Channel{
-		ID:        generateID(),
-		GuildID:   guildID,
-		Name:      name,
-		Type:      chType,
-		TopicBlob: topicBlob,
-		CreatedAt: time.Now().UTC(),
+		ID:         generateID(),
+		GuildID:    guildID,
+		Type:       chType,
+		ConfigBlob: configBlob,
+		CreatedAt:  time.Now().UTC(),
 	}
 
 	if err := c.Validate(); err != nil {
@@ -158,5 +158,5 @@ func (s *Service) UpdateMemberRole(ctx context.Context, guildID, actorAccountID,
 }
 
 func generateID() string {
-	return ""
+	return uuid.New().String()
 }

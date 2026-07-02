@@ -1,46 +1,36 @@
 package prekey
 
-import (
-	"errors"
-	"time"
-)
+import "errors"
 
 var (
 	ErrNotFound      = errors.New("prekey: not found")
-	ErrAlreadyExists = errors.New("prekey: already exists")
+	ErrOTKExhausted  = errors.New("prekey: one-time prekey pool exhausted")
+	ErrInvalidSig    = errors.New("prekey: signature invalid")
 	ErrInvalidKeyLen = errors.New("prekey: invalid key length")
 )
 
-type PreKeyType int16
+type SignedPreKey struct {
+	DeviceID string
 
-const (
-	PreKeyOneTime PreKeyType = iota
-	PreKeySigned
-)
+	KeyID uint32
 
-type PreKey struct {
-	ID         uint64
-	DeviceID   string
-	PublicKey  []byte
-	PrivateKey []byte
-	Type       PreKeyType
-	Consumed   bool
-	CreatedAt  time.Time
-	ExpiresAt  time.Time
+	PublicKey []byte
+
+	Signature []byte
 }
 
-func (pk *PreKey) Validate() error {
-	if len(pk.PublicKey) != 32 {
-		return ErrInvalidKeyLen
-	}
-	if len(pk.PrivateKey) != 32 {
-		return ErrInvalidKeyLen
-	}
-	if pk.DeviceID == "" {
-		return errors.New("prekey: device_id is required")
-	}
-	if pk.Type != PreKeyOneTime && pk.Type != PreKeySigned {
-		return errors.New("prekey: invalid type")
-	}
-	return nil
+type OneTimePreKey struct {
+	DeviceID string
+
+	KeyID uint32
+
+	PublicKey []byte
+
+	Signature []byte
+}
+
+type Bundle struct {
+	DeviceID string
+	SPK      *SignedPreKey
+	OTK      *OneTimePreKey
 }

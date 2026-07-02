@@ -3,178 +3,162 @@ package prekey
 import (
 	"context"
 	"crypto/ed25519"
-	"crypto/rand"
-	"encoding/pem"
+	"encoding/binary"
 	"errors"
-	"time"
+	"fmt"
 )
 
 type Repository interface {
-	Create(ctx context.Context, pk *PreKey) error
-	GetByID(ctx context.Context, id uint64) (*PreKey, error)
-	GetByDeviceID(ctx context.Context, deviceID string, consumed bool) ([]*PreKey, error)
-	GetSignedPrekey(ctx context.Context, deviceID string) (*PreKey, error)
-	MarkConsumed(ctx context.Context, id uint64) error
-	Revoke(ctx context.Context, id uint64) error
-	RevokeAllForDevice(ctx context.Context, deviceID string) error
-	ExpireOld(ctx context.Context, before time.Time) (int64, error)
+	UpsertSignedPreKey(ctx context.Context, spk *SignedPreKey) error
+	GetSignedPreKey(ctx context.Context, deviceID string) (*SignedPreKey, error)
+
+	UploadOneTimePreKeys(ctx context.Context, deviceID string, keys []OneTimePreKey) error
+	ConsumeOneTimePreKey(ctx context.Context, deviceID string) (*OneTimePreKey, error)
+	CountOneTimePreKeys(ctx context.Context, deviceID string) (int64, error)
+
+	FetchBundle(ctx context.Context, deviceID string) (*Bundle, error)
+
+	DeleteAllForDevice(ctx context.Context, deviceID string) error
 }
+
+const LowWatermark = 20
 
 type Service struct {
-	repo      Repository
-	clockFn   func() time.Time
-	expiry    time.Duration
-	batchSize int
+	repo Repository
 }
 
-func NewService(repo Repository, opts ...Option) *Service {
-	s := &Service{
-		repo:      repo,
-		clockFn:   time.Now,
-		expiry:    30 * 24 * time.Hour,
-		batchSize: 100,
+func NewService(repo Repository) *Service {
+	return &Service{repo: repo}
+}
+
+func (s *Service) UploadSignedPreKey(ctx context.Context, deviceIdentityKey ed25519.PublicKey, spk *SignedPreKey) error {
+	if err := validateSPK(spk); err != nil {
+		return fmt.Errorf("upload signed prekey: %w", err)
 	}
-	for _, opt := range opts {
-		opt(s)
+
+	if err := verifySPKSignature(deviceIdentityKey, spk); err != nil {
+		return fmt.Errorf("upload signed prekey: %w", err)
 	}
-	return s
+
+	if err := s.repo.UpsertSignedPreKey(ctx, spk); err != nil {
+		return fmt.Errorf("upload signed prekey: store: %w", err)
+	}
+
+	return nil
 }
 
-type Option func(*Service)
+func (s *Service) UploadOneTimePreKeys(ctx context.Context, deviceIdentityKey ed25519.PublicKey, deviceID string, keys []OneTimePreKey) error {
+	if len(keys) == 0 {
+		return errors.New("upload one-time prekeys: batch is empty")
+	}
+	if len(keys) > 100 {
+		return fmt.Errorf("upload one-time prekeys: batch too large (%d, max 100)", len(keys))
+	}
 
-func WithExpiry(d time.Duration) Option {
-	return func(s *Service) { s.expiry = d }
-}
-
-func WithBatchSize(n int) Option {
-	return func(s *Service) { s.batchSize = n }
-}
-
-func WithClock(fn func() time.Time) Option {
-	return func(s *Service) { s.clockFn = fn }
-}
-
-func (s *Service) GenerateOneTimePrekeys(ctx context.Context, deviceID string) ([]PreKey, error) {
-	now := s.clockFn().UTC()
-	expiresAt := now.Add(s.expiry)
-
-	prekeys := make([]PreKey, s.batchSize)
-	for i := 0; i < s.batchSize; i++ {
-		pub, priv, err := ed25519.GenerateKey(rand.Reader)
-		if err != nil {
-			return nil, errors.New("prekey: failed to generate key pair")
+	for i, k := range keys {
+		if err := validateOTK(&k); err != nil {
+			return fmt.Errorf("upload one-time prekeys: key[%d]: %w", i, err)
 		}
-		prekeys[i] = PreKey{
-			DeviceID:   deviceID,
-			PublicKey:  pub,
-			PrivateKey: priv,
-			Type:       PreKeyOneTime,
-			Consumed:   false,
-			CreatedAt:  now,
-			ExpiresAt:  expiresAt,
+		if err := verifyOTKSignature(deviceIdentityKey, &k); err != nil {
+			return fmt.Errorf("upload one-time prekeys: key[%d]: %w", i, err)
 		}
 	}
-	return prekeys, nil
+
+	for i := range keys {
+		keys[i].DeviceID = deviceID
+	}
+
+	if err := s.repo.UploadOneTimePreKeys(ctx, deviceID, keys); err != nil {
+		return fmt.Errorf("upload one-time prekeys: store: %w", err)
+	}
+
+	return nil
 }
 
-func (s *Service) GenerateSignedPrekey(ctx context.Context, deviceID string) (*PreKey, error) {
-	now := s.clockFn().UTC()
-	expiresAt := now.Add(s.expiry)
-
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+func (s *Service) FetchBundle(ctx context.Context, deviceID string) (*Bundle, bool, error) {
+	bundle, err := s.repo.FetchBundle(ctx, deviceID)
 	if err != nil {
-		return nil, errors.New("prekey: failed to generate signed prekey")
+		return nil, false, fmt.Errorf("fetch bundle: %w", err)
 	}
 
-	return &PreKey{
-		DeviceID:   deviceID,
-		PublicKey:  pub,
-		PrivateKey: priv,
-		Type:       PreKeySigned,
-		Consumed:   false,
-		CreatedAt:  now,
-		ExpiresAt:  expiresAt,
-	}, nil
+	count, err := s.repo.CountOneTimePreKeys(ctx, deviceID)
+	if err != nil {
+		return bundle, false, nil
+	}
+
+	needsRefill := count < LowWatermark
+	return bundle, needsRefill, nil
 }
 
-func (s *Service) UploadPrekeyBundle(ctx context.Context, deviceID string, signedPrekey *PreKey, oneTimePrekeys []PreKey) error {
-	if err := signedPrekey.Validate(); err != nil {
-		return err
+func (s *Service) OTKCount(ctx context.Context, deviceID string) (int64, error) {
+	count, err := s.repo.CountOneTimePreKeys(ctx, deviceID)
+	if err != nil {
+		return 0, fmt.Errorf("otk count: %w", err)
 	}
+	return count, nil
+}
 
-	if err := s.repo.RevokeAllForDevice(ctx, deviceID); err != nil && !errors.Is(err, ErrNotFound) {
-		return err
+func (s *Service) NeedsRefill(ctx context.Context, deviceID string) (bool, error) {
+	count, err := s.repo.CountOneTimePreKeys(ctx, deviceID)
+	if err != nil {
+		return false, fmt.Errorf("needs refill: %w", err)
 	}
+	return count < LowWatermark, nil
+}
 
-	signedPrekey.Consumed = false
-	if err := s.repo.Create(ctx, signedPrekey); err != nil {
-		return err
-	}
-
-	for i := range oneTimePrekeys {
-		oneTimePrekeys[i].DeviceID = deviceID
-		oneTimePrekeys[i].Consumed = false
-		if err := s.repo.Create(ctx, &oneTimePrekeys[i]); err != nil {
-			return err
-		}
+func (s *Service) DeleteAllForDevice(ctx context.Context, deviceID string) error {
+	if err := s.repo.DeleteAllForDevice(ctx, deviceID); err != nil {
+		return fmt.Errorf("delete all for device: %w", err)
 	}
 	return nil
 }
 
-func (s *Service) FetchPrekeyBundle(ctx context.Context, deviceID string) (*PreKey, []PreKey, error) {
-	signedPrekey, err := s.repo.GetSignedPrekey(ctx, deviceID)
-	if err != nil {
-		return nil, nil, err
+func validateSPK(spk *SignedPreKey) error {
+	if spk.DeviceID == "" {
+		return errors.New("device_id required")
 	}
-
-	oneTimePrekeys, err := s.repo.GetByDeviceID(ctx, deviceID, false)
-	if err != nil {
-		return nil, nil, err
+	if len(spk.PublicKey) != 32 {
+		return fmt.Errorf("%w: SPK public key must be 32 bytes, got %d",
+			ErrInvalidKeyLen, len(spk.PublicKey))
 	}
-
-	var available []PreKey
-	now := s.clockFn().UTC()
-	for _, pk := range oneTimePrekeys {
-		if !pk.Consumed && pk.ExpiresAt.After(now) {
-			available = append(available, *pk)
-		}
+	if len(spk.Signature) != ed25519.SignatureSize {
+		return fmt.Errorf("SPK signature must be %d bytes, got %d",
+			ed25519.SignatureSize, len(spk.Signature))
 	}
-
-	return signedPrekey, available, nil
+	return nil
 }
 
-func (s *Service) ConsumePrekey(ctx context.Context, prekeyID uint64) error {
-	pk, err := s.repo.GetByID(ctx, prekeyID)
-	if err != nil {
-		return err
+func validateOTK(otk *OneTimePreKey) error {
+	if len(otk.PublicKey) != 32 {
+		return fmt.Errorf("%w: OTK public key must be 32 bytes, got %d",
+			ErrInvalidKeyLen, len(otk.PublicKey))
 	}
-	if pk.Type != PreKeyOneTime {
-		return errors.New("prekey: cannot consume a non-one-time prekey")
+	if len(otk.Signature) != ed25519.SignatureSize {
+		return fmt.Errorf("OTK signature must be %d bytes, got %d",
+			ed25519.SignatureSize, len(otk.Signature))
 	}
-	if pk.Consumed {
-		return errors.New("prekey: prekey already consumed")
-	}
-	return s.repo.MarkConsumed(ctx, prekeyID)
+	return nil
 }
 
-func ExportIdentityKeyPEM(key ed25519.PublicKey) ([]byte, error) {
-	block := &pem.Block{
-		Type:  "ED25519 PUBLIC KEY",
-		Bytes: key,
+func verifySPKSignature(deviceIdentityKey ed25519.PublicKey, spk *SignedPreKey) error {
+	payload := buildPreKeyPayload(spk.KeyID, spk.PublicKey)
+	if !ed25519.Verify(deviceIdentityKey, payload, spk.Signature) {
+		return ErrInvalidSig
 	}
-	return pem.EncodeToMemory(block), nil
+	return nil
 }
 
-func ParseIdentityKeyPEM(data []byte) (ed25519.PublicKey, error) {
-	block, _ := pem.Decode(data)
-	if block == nil {
-		return nil, errors.New("prekey: failed to parse PEM block")
+func verifyOTKSignature(deviceIdentityKey ed25519.PublicKey, otk *OneTimePreKey) error {
+	payload := buildPreKeyPayload(otk.KeyID, otk.PublicKey)
+	if !ed25519.Verify(deviceIdentityKey, payload, otk.Signature) {
+		return ErrInvalidSig
 	}
-	if block.Type != "ED25519 PUBLIC KEY" {
-		return nil, errors.New("prekey: unsupported PEM type")
-	}
-	if len(block.Bytes) != ed25519.PublicKeySize {
-		return nil, ErrInvalidKeyLen
-	}
-	return ed25519.PublicKey(block.Bytes), nil
+	return nil
+}
+
+func buildPreKeyPayload(keyID uint32, publicKey []byte) []byte {
+	payload := make([]byte, 4+len(publicKey))
+	binary.BigEndian.PutUint32(payload[:4], keyID)
+	copy(payload[4:], publicKey)
+	return payload
 }
