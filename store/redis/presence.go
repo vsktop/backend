@@ -60,6 +60,9 @@ func (s *PresenceStore) Get(ctx context.Context, accountID string) (*presence.Pr
 }
 
 func (s *PresenceStore) GetAllOnline(ctx context.Context, limit int) ([]*presence.Presence, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
 	members, err := s.client.Do(ctx,
 		s.client.B().Zrevrangebyscore().Key(onlineKey).Max("+inf").Min("-inf").Limit(0, int64(limit)).Build(),
 	).AsStrSlice()
@@ -69,13 +72,24 @@ func (s *PresenceStore) GetAllOnline(ctx context.Context, limit int) ([]*presenc
 		}
 		return nil, err
 	}
-	result := make([]*presence.Presence, 0, len(members))
+	if len(members) == 0 {
+		return nil, nil
+	}
+	gets := make(rueidis.Commands, 0, len(members))
 	for _, accountID := range members {
-		p, err := s.Get(ctx, accountID)
+		gets = append(gets, s.client.B().Get().Key(presenceKey(accountID)).Build())
+	}
+	result := make([]*presence.Presence, 0, len(members))
+	for _, resp := range s.client.DoMulti(ctx, gets...) {
+		b, err := resp.AsBytes()
 		if err != nil {
 			continue
 		}
-		result = append(result, p)
+		var p presence.Presence
+		if err := json.Unmarshal(b, &p); err != nil {
+			continue
+		}
+		result = append(result, &p)
 	}
 	return result, nil
 }
@@ -122,8 +136,12 @@ func (h *PresenceHub) Subscribe(accountID string) chan presence.PresenceEvent {
 
 func (h *PresenceHub) Unsubscribe(accountID string) {
 	h.mu.Lock()
+	chs := h.subscribers[accountID]
 	delete(h.subscribers, accountID)
 	h.mu.Unlock()
+	for _, ch := range chs {
+		close(ch)
+	}
 }
 
 func (h *PresenceHub) Broadcast(event presence.PresenceEvent) {

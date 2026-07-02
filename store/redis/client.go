@@ -4,10 +4,10 @@ import (
 	"github.com/redis/rueidis"
 )
 
-func Connect() {
+func Connect() (rueidis.Client, error) {
 	client, err := rueidis.NewClient(rueidis.ClientOption{InitAddress: []string{"127.0.0.1:6379"}})
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
-	defer client.Close()
+	return client, nil
 }
