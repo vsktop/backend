@@ -6,63 +6,47 @@ import (
 )
 
 var (
-	ErrNotFound     = errors.New("messaging: not found")
-	ErrInvalidRoute = errors.New("messaging: invalid route")
-	ErrTooLarge     = errors.New("messaging: message too large")
+	ErrRecipientNotFound = errors.New("messaging: recipient not found")
+	ErrQueueFull         = errors.New("messaging: recipient queue full")
+	ErrEnvelopeTooLarge  = errors.New("messaging: envelope too large")
+	ErrNotFound          = errors.New("messaging: not found")
 )
+
+const MaxEnvelopeSize = 64 * 1024
+
+type MessageType int16
 
 const (
-	MaxMessageSize = 65536
-
-	MessageTypeDirect = "direct"
-
-	MessageTypeGuild = "guild"
+	MessageTypeText    MessageType = 1
+	MessageTypeFile    MessageType = 2
+	MessageTypeReact   MessageType = 3
+	MessageTypeControl MessageType = 4
 )
 
-type Message struct {
-	ID string
-
+type SendRequest struct {
 	SenderDeviceID string
 
-	SenderAccountID string
+	RecipientAccountID string
 
-	Type string
+	SealedEnvelope []byte
 
-	RecipientDeviceID string
-
-	GuildID   string
 	ChannelID string
 
-	Payload []byte
-
-	CreatedAt time.Time
-
-	EditedAt *time.Time
-
-	Deleted bool
+	MessageType MessageType
 }
 
-func (m *Message) Validate() error {
-	if m.ID == "" {
-		return errors.New("messaging: message ID is required")
-	}
-	if m.SenderDeviceID == "" {
-		return errors.New("messaging: sender_device_id is required")
-	}
-	if m.SenderAccountID == "" {
-		return errors.New("messaging: sender_account_id is required")
-	}
-	if m.Type != MessageTypeDirect && m.Type != MessageTypeGuild {
-		return ErrInvalidRoute
-	}
-	if len(m.Payload) > MaxMessageSize {
-		return ErrTooLarge
-	}
-	if m.Type == MessageTypeDirect && m.RecipientDeviceID == "" {
-		return errors.New("messaging: recipient_device_id is required for direct messages")
-	}
-	if m.Type == MessageTypeGuild && (m.GuildID == "" || m.ChannelID == "") {
-		return errors.New("messaging: guild_id and channel_id are required for guild messages")
-	}
-	return nil
+type SendResult struct {
+	DeliveryID uint64
+
+	DeliveredOnline bool
+}
+
+type QueuedMessage struct {
+	ID                uint64
+	RecipientDeviceID string
+	SealedEnvelope    []byte
+	ChannelID         string
+	MessageType       MessageType
+	QueuedAt          time.Time
+	ExpiresAt         time.Time
 }
