@@ -10,23 +10,19 @@ var (
 )
 
 type SignedPreKey struct {
-	DeviceID string
+	DeviceID string `json:"-"` // set server-side; not accepted from clients
 
-	KeyID uint32
-
-	PublicKey []byte
-
-	Signature []byte
+	KeyID     uint32 `json:"key_id"`
+	PublicKey []byte `json:"public_key"` // base64 X25519 pub, 32 bytes
+	Signature []byte `json:"signature"`  // base64 Ed25519 sig by device key
 }
 
 type OneTimePreKey struct {
-	DeviceID string
+	DeviceID string `json:"-"` // set server-side; not accepted from clients
 
-	KeyID uint32
-
-	PublicKey []byte
-
-	Signature []byte
+	KeyID     uint32 `json:"key_id"`
+	PublicKey []byte `json:"public_key"` // base64 X25519 pub, 32 bytes
+	Signature []byte `json:"signature"`  // base64 Ed25519 sig by device key
 }
 
 type Bundle struct {
