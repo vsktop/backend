@@ -2,10 +2,12 @@ package prekey
 
 import (
 	"crypto/ed25519"
+	"encoding/binary"
 	"errors"
+	"fmt"
 )
 
-func VerifySignedPrekeySignature(identityKey ed25519.PublicKey, prekeyPub, signature []byte) error {
+func VerifySignedPrekeySignature(identityKey ed25519.PublicKey, keyID uint32, prekeyPub, signature []byte) error {
 	if len(identityKey) != ed25519.PublicKeySize {
 		return errors.New("prekey: invalid identity key length")
 	}
@@ -15,15 +17,25 @@ func VerifySignedPrekeySignature(identityKey ed25519.PublicKey, prekeyPub, signa
 	if len(signature) != ed25519.SignatureSize {
 		return errors.New("prekey: invalid signature length")
 	}
-
-	if !ed25519.Verify(identityKey, prekeyPub, signature) {
-		return errors.New("prekey: signed prekey signature invalid under account identity key")
+	payload := make([]byte, 4+len(prekeyPub))
+	binary.BigEndian.PutUint32(payload[:4], keyID)
+	copy(payload[4:], prekeyPub)
+	if !ed25519.Verify(identityKey, payload, signature) {
+		return errors.New("prekey: signature invalid")
 	}
 	return nil
 }
 
-func VerifyPrekeyBundle(identityKey ed25519.PublicKey, signedPrekeyPub, signedPrekeySig []byte) error {
-	return VerifySignedPrekeySignature(identityKey, signedPrekeyPub, signedPrekeySig)
+func VerifyBundle(identityKey ed25519.PublicKey, b *Bundle) error {
+	if err := VerifySignedPrekeySignature(identityKey, b.SPK.KeyID, b.SPK.PublicKey, b.SPK.Signature); err != nil {
+		return fmt.Errorf("SPK: %w", err)
+	}
+	if b.OTK != nil {
+		if err := VerifySignedPrekeySignature(identityKey, b.OTK.KeyID, b.OTK.PublicKey, b.OTK.Signature); err != nil {
+			return fmt.Errorf("OTK: %w", err)
+		}
+	}
+	return nil
 }
 
 func ContainsID(ids []uint64, target uint64) bool {

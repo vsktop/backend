@@ -32,7 +32,7 @@ func NewService(repo Repository) *Service {
 }
 
 func (s *Service) UploadSignedPreKey(ctx context.Context, deviceIdentityKey ed25519.PublicKey, spk *SignedPreKey) error {
-	if err := validateSPK(spk); err != nil {
+	if err := spk.Validate(); err != nil {
 		return fmt.Errorf("upload signed prekey: %w", err)
 	}
 
@@ -56,7 +56,7 @@ func (s *Service) UploadOneTimePreKeys(ctx context.Context, deviceIdentityKey ed
 	}
 
 	for i, k := range keys {
-		if err := validateOTK(&k); err != nil {
+		if err := k.Validate(); err != nil {
 			return fmt.Errorf("upload one-time prekeys: key[%d]: %w", i, err)
 		}
 		if err := verifyOTKSignature(deviceIdentityKey, &k); err != nil {
@@ -109,33 +109,6 @@ func (s *Service) NeedsRefill(ctx context.Context, deviceID string) (bool, error
 func (s *Service) DeleteAllForDevice(ctx context.Context, deviceID string) error {
 	if err := s.repo.DeleteAllForDevice(ctx, deviceID); err != nil {
 		return fmt.Errorf("delete all for device: %w", err)
-	}
-	return nil
-}
-
-func validateSPK(spk *SignedPreKey) error {
-	if spk.DeviceID == "" {
-		return errors.New("device_id required")
-	}
-	if len(spk.PublicKey) != 32 {
-		return fmt.Errorf("%w: SPK public key must be 32 bytes, got %d",
-			ErrInvalidKeyLen, len(spk.PublicKey))
-	}
-	if len(spk.Signature) != ed25519.SignatureSize {
-		return fmt.Errorf("SPK signature must be %d bytes, got %d",
-			ed25519.SignatureSize, len(spk.Signature))
-	}
-	return nil
-}
-
-func validateOTK(otk *OneTimePreKey) error {
-	if len(otk.PublicKey) != 32 {
-		return fmt.Errorf("%w: OTK public key must be 32 bytes, got %d",
-			ErrInvalidKeyLen, len(otk.PublicKey))
-	}
-	if len(otk.Signature) != ed25519.SignatureSize {
-		return fmt.Errorf("OTK signature must be %d bytes, got %d",
-			ed25519.SignatureSize, len(otk.Signature))
 	}
 	return nil
 }
